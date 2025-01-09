@@ -6,7 +6,7 @@ uses
   System.SysUtils, System.Types, System.UITypes, System.Classes, System.Variants,
   FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.Dialogs,
   FMX.Controls.Presentation, FMX.StdCtrls, FMX.Memo.Types, FMX.ScrollBox,
-  FMX.Memo, FMX.DateTimeCtrls;
+  FMX.Memo, FMX.DateTimeCtrls, FMX.Edit;
 
 type
   TForm1 = class(TForm)
@@ -17,6 +17,10 @@ type
     Label1: TLabel;
     Label2: TLabel;
     DateEnd: TDateEdit;
+    Label3: TLabel;
+    Label4: TLabel;
+    Prm: TEdit;
+    Token: TEdit;
     procedure Button1Click(Sender: TObject);
     procedure FormCreate(Sender: TObject);
   end;
@@ -32,14 +36,9 @@ uses uConsoAPI, DateUtils, uJX4Object;
 procedure TForm1.Button1Click(Sender: TObject);
  var
   Res:    TConsoAPIResult;
-  Token:  string;
-  Prm:    string;
 begin
 
-  Token := {$INCLUDE Token.inc};   // << Paste your token here.
-  Prm   := {$INCLUDE Prm.inc};     // << Paste your PRM here
-
-  Res := ConsoAPI( Token, daily_consumption, Prm, DateStart.Date,  DateEnd.Date );
+  Res := ConsoAPI( Token.Text, daily_consumption, Prm.Text, DateStart.Date,  DateEnd.Date );
 
   Memo1.lines.Clear;
   if Res.status.IsEmpty then
@@ -53,6 +52,8 @@ procedure TForm1.FormCreate(Sender: TObject);
 begin
   DateStart.Date := Now - 10;
   DateEnd.Date := Now;
+  Token.Text := {$INCLUDE Token.inc};
+  Prm.Text := {$INCLUDE Prm.inc};
 end;
 
 end.

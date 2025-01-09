@@ -2,7 +2,7 @@ object Form1: TForm1
   Left = 0
   Top = 0
   Caption = 'Conso API'
-  ClientHeight = 480
+  ClientHeight = 656
   ClientWidth = 640
   FormFactor.Width = 320
   FormFactor.Height = 480
@@ -14,16 +14,16 @@ object Form1: TForm1
     DataDetectorTypes = []
     Align = Client
     Size.Width = 640.000000000000000000
-    Size.Height = 407.000000000000000000
+    Size.Height = 479.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 1
     Viewport.Width = 636.000000000000000000
-    Viewport.Height = 403.000000000000000000
+    Viewport.Height = 475.000000000000000000
   end
   object Panel1: TPanel
     Align = Top
     Size.Width = 640.000000000000000000
-    Size.Height = 73.000000000000000000
+    Size.Height = 177.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 2
     object DateStart: TDateEdit
@@ -45,7 +45,7 @@ object Form1: TForm1
     end
     object Button1: TButton
       Position.X = 288.000000000000000000
-      Position.Y = 17.000000000000000000
+      Position.Y = 57.000000000000000000
       Size.Width = 313.000000000000000000
       Size.Height = 41.000000000000000000
       Size.PlatformDefault = False
@@ -55,7 +55,7 @@ object Form1: TForm1
       OnClick = Button1Click
     end
     object Label1: TLabel
-      Position.X = 16.000000000000000000
+      Position.X = 8.000000000000000000
       Position.Y = 8.000000000000000000
       Size.Width = 41.000000000000000000
       Size.Height = 14.000000000000000000
@@ -63,12 +63,45 @@ object Form1: TForm1
       Text = 'From :'
       TabOrder = 2
       object Label2: TLabel
-        Position.X = 136.000000000000000000
+        Position.X = 144.000000000000000000
         Size.Width = 41.000000000000000000
         Size.Height = 14.000000000000000000
         Size.PlatformDefault = False
         Text = 'To :'
         TabOrder = 4
+      end
+      object Label3: TLabel
+        Position.Y = 56.000000000000000000
+        Size.Width = 41.000000000000000000
+        Size.Height = 14.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'Prm :'
+        TabOrder = 2
+        object Label4: TLabel
+          Position.Y = 52.000000000000000000
+          Size.Width = 41.000000000000000000
+          Size.Height = 14.000000000000000000
+          Size.PlatformDefault = False
+          Text = 'Token :'
+          TabOrder = 4
+        end
+      end
+    end
+    object Prm: TEdit
+      Touch.InteractiveGestures = [LongTap, DoubleTap]
+      TabOrder = 4
+      Position.X = 8.000000000000000000
+      Position.Y = 86.000000000000000000
+      Size.Width = 244.000000000000000000
+      Size.Height = 22.000000000000000000
+      Size.PlatformDefault = False
+      object Token: TEdit
+        Touch.InteractiveGestures = [LongTap, DoubleTap]
+        TabOrder = 4
+        Position.Y = 52.000000000000000000
+        Size.Width = 625.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
       end
     end
   end
