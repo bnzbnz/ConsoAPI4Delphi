@@ -52,10 +52,11 @@ var
 begin
   Http := THTTPClient.Create;
   try
-    Http.UserAgent := 'ConsoAPI4Delphi - Laurent Meyer - ConsoAPI@lmeyer.fr';
+    Http.UserAgent := 'ConsoAPI4Delphi @ https://github.com/bnzbnz/ConsoAPI4Delphi, Laurent Meyer - ConsoAPI@lmeyer.fr';
     Http.AutomaticDecompression := [THTTPCompressionMethod.Any];
     Http.ContentType := 'application/json';
     Http.CustomHeaders['Authorization'] := 'Bearer '+Token;
+    Http.CustomHeaders['From'] := 'Laurent Meyer - ConsoAPI@lmeyer.fr' + Token;
     var Retries := 3;
     repeat
       Dec(Retries);
