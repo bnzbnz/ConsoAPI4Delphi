@@ -5,3 +5,5 @@ Enregistrez vous sur le site de Conso API et récuperez vos Token et Prm (linky 
 
 - Conso API: https://conso.boris.sh/
 - ConsoAPI4Delphi est basé sur le moteur JsonX4 : https://github.com/bnzbnz/JsonX4
+
+![image info](Images/form1.png)
