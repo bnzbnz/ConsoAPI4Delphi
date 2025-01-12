@@ -1,5 +1,5 @@
 # ConsoAPI4Delphi
-Delphi API permetant d'accéder aux données de consommation et production de vore compteur Linky via le service Conso API (Open source & free).
+Delphi API permetant d'accéder aux données de consommation et production de votre compteur Linky via le service Conso API (Open source & free).
 -
 Enregistrez vous sur le site de Conso API et récuperez vos Token et Prm (linky Id):
 
