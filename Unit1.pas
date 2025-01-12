@@ -60,7 +60,7 @@ begin
 
     // Save Settings
     Settings := TSetttings.Create;
-    Settings.Prm                   :=  Prm.Text.Trim;
+    Settings.Prm                   := Prm.Text.Trim;
     Settings.Token                 := Token.Text.Trim;
     Settings.DateStart.ISO8601Utc  := DateStart.Date;
     Settings.DateEnd.ISO8601Utc    := DateEnd.Date;
@@ -94,6 +94,7 @@ begin
   finally
     Settings.Free;
   end;
+  //
 end;
 
 end.

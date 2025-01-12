@@ -84,7 +84,7 @@ begin
   LUrl := 'https://conso.boris.sh/api/' + TRttiEnumerationType.GetName(ConsoType)
           + '?prm='   + Prm
           + '&start=' + FormatDateTime('yyyy-mm-dd', StartDate)
-          + '&end='   + FormatDateTime('yyyy-mm-dd', EndDate)
+          + '&end='   + FormatDateTime('yyyy-mm-dd', EndDate + 1)
           ;
 
   LBody := TStringStream.Create;
