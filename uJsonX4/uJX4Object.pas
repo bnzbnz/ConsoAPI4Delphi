@@ -34,8 +34,8 @@ uses
   ;
 
 const
-  cUJX4Version = 010000; // 01.00.00
-  cBoolToStr: array[Boolean] of string = ('false','true');
+  CJX4Version = $0102; // 01.02
+  CBoolToStr: array[Boolean] of string = ('false','true');
   
 type
 
@@ -67,6 +67,8 @@ type
 
   TJX4Required = class(TCustomAttribute);
 
+  TJX4Excluded = class(TCustomAttribute);
+
   TJX4Unmanaged = class(TCustomAttribute);
   
   TJX4IOBlock = class
@@ -96,25 +98,28 @@ type
     procedure SetDateTime(const AValue: TDateTime);
   public
   
-    function    JSONSerialize(AIOBlock: TJX4IOBlock): TValue;
-    procedure   JSONDeserialize(AIOBlock: TJX4IOBlock);
-    function    JSONClone(AOptions: TJX4Options = []): TValue;
-    function    JSONMerge(AMergedWith: TValue; AOptions: TJX4Options): TValue;
+    function  JSONSerialize(AIOBlock: TJX4IOBlock): TValue;
+    procedure JSONDeserialize(AIOBlock: TJX4IOBlock);
+    function  JSONClone(AOptions: TJX4Options = []): TValue;
+    function  JSONMerge(AMergedWith: TValue; AOptions: TJX4Options): TValue;
 
     //Conversion Tools
-    function    TypeKind:                         TJX4TValueKind;
-    function    ToBKiBMiB:                          string;
-    function    ToPercent(Decimal: Integer = 2):    string;
-    function    ToStrFloat(Decimal: Integer = 2):   string;
-    function    ToSecondsFromNow:                   string;
-    function    ToSecToDuration:                    string;
-    function    ToString:                           string;
+    function  TypeKind:                           TJX4TValueKind;
+    function  ToBKiBMiB:                          string;
+    function  ToPercent(Decimal: Integer = 2):    string;
+    function  ToStrFloat(Decimal: Integer = 2):   string;
+    function  ToSecondsFromNow:                   string;
+    function  ToSecToDuration:                    string;
+    function  ToString:                           string;
+    function  ToInteger:                          int64;
+    function  ToFloat:                            Extended;
 
-    property    ISO8601:      TDateTime read GetISO8601 write SetISO8601;
-    property    ISO8601Utc:   TDateTime read GetISO8601Utc write SetISO8601Utc;
-    property    Timestamp:    TDateTime read GetTimestamp write SetTimestamp;
-    property    TimestampUtc: TDateTime read GetTimestampUtc write SetTimestampUtc;
-    property    DateTime :    TDateTime read GetDateTime write SetDateTime;
+
+    property  ISO8601:      TDateTime read GetISO8601 write SetISO8601;
+    property  ISO8601Utc:   TDateTime read GetISO8601Utc write SetISO8601Utc;
+    property  Timestamp:    TDateTime read GetTimestamp write SetTimestamp;
+    property  TimestampUtc: TDateTime read GetTimestampUtc write SetTimestampUtc;
+    property  DateTime :    TDateTime read GetDateTime write SetDateTime;
   end;
 
   TJX4Object = class(TObject)
@@ -136,11 +141,15 @@ type
     procedure       Merge(AMergedWith: TObject; AOptions: TJX4Options = []);
 
     // Utils
+    class function  Version: string;
+    class function  VersionValue: integer;
+
     class function  NameDecode(const ToDecode: string): string; static;
     class procedure VarEscapeJSONStr(var AStr: string); overload; static;
     class function  EscapeJSONStr(const AStr: string): string; overload; static;
     class function  JsonListToJsonString(const AList: TList<string>): string; static;
     class function  FormatJSON(const AJson: string; AIndentation: Integer = 2): string; static;
+
     class function  LoadFromFile(const AFilename: string; var AStr: string; AEncoding: TEncoding): Int64;
     class function  SaveToFile(const Filename: string; const AStr: string; AEncoding: TEncoding): Int64;
 
@@ -177,6 +186,30 @@ begin
     tkvFloat: Result := Self.AsExtended.ToString;
   else
     Result := '';
+  end;
+end;
+
+function TJX4TValueHelper.ToInteger: Int64;
+begin
+  case self.TypeKind of
+    tkvString: Result := Self.AsString.ToInt64;
+    tkvBool: Result := Self.AsBoolean.ToInteger;
+    tkvInteger: Result := Self.AsInt64;
+    tkvFloat: Result := Trunc(Self.AsExtended);
+  else
+    Result := 0;
+  end;
+end;
+
+function TJX4TValueHelper.ToFloat: Extended;
+begin
+  case self.TypeKind of
+    tkvString: Result := Self.AsExtended;
+    tkvBool: Result := Self.AsBoolean.ToInteger;
+    tkvInteger: Result := Self.AsInt64;
+    tkvFloat: Result := Self.AsExtended;
+  else
+    Result := 0;
   end;
 end;
 
@@ -352,6 +385,11 @@ var
   LAttr:  TCustomAttribute;
 begin
   Result := Nil;
+  if Assigned(AIOBlock.Field) then
+  begin
+    LAttr := TJX4Excluded(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Excluded));
+    if Assigned(LAttr) then Exit;
+  end;
   case Self.Kind of
     tkChar, tkString, tkWChar, tkLString, tkWString, tkUString:
       LValue := '"' + TJX4Object.EscapeJSONStr(Self.AsString) + '"';
@@ -411,6 +449,11 @@ var
   LAttr:          TCustomAttribute;
 begin
   Self := Nil;
+  if Assigned(AIOBlock.Field) then
+  begin
+    LAttr := TJX4Excluded(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Excluded));
+    if Assigned(LAttr) then Exit;
+  end;
   LJPair := AIOBlock.JObj.Pairs[0];
   if not(Assigned(LJPair) and  (not LJPair.null) and not (LJPair.JsonValue is TJSONNull) and not (LJPair.JsonValue.Value.IsEmpty)) then
   begin
@@ -792,6 +835,19 @@ begin
     LJObj.Free;
     LIOBlock.Free;
   end;
+end;
+
+class function TJX4Object.Version: string;
+begin
+  Result := Format('%0.2d.%0.2d', [
+              (CJX4Version and $FF00) shr 8,
+              (CJX4Version and $00FF)
+            ]);
+end;
+
+class function TJX4Object.VersionValue: integer;
+begin
+  Result := (((CJX4Version and $FF00) shr 8) * 100) + (CJX4Version and $00FF);
 end;
 
 class function TJX4Object.NameDecode(const ToDecode: string): string;
