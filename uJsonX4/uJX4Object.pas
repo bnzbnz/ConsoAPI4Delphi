@@ -1,4 +1,4 @@
-(*****************************************************************************
+﻿(*****************************************************************************
 The MIT License (MIT)
 
 Copyright (c) 2020-2025 Laurent Meyer JsonX3@ea4d.com
@@ -82,7 +82,7 @@ type
     procedure   Init(AJsonName: string; AJObj: TJSONObject; AField: TRttiField; AOptions: TJX4Options);
   end;
 
-  TJX4TValueKind = (tkvUnknown, tkvString, tkvBool, tkvInteger, tkvFloat);
+  TJX4TValueKind = (tkvUnknown, tkvEmpty, tkvString, tkvBool, tkvInteger, tkvFloat);
 
   TJX4TValueHelper = record helper for TValue
   private
@@ -92,9 +92,12 @@ type
     procedure SetISO8601Utc(const AValue: TDateTime);
     function  GetTimestamp: TDateTime;
     procedure SetTimestamp(const AValue: TDateTime);
+    function  GetTimestampStr: string;
     function  GetTimestampUtc: TDateTime;
+    function  GetTimestampUtcStr: string;
     procedure SetTimestampUtc(const AValue: TDateTime);
     function  GetDateTime: TDateTime;
+    function  GetDateTimeStr: string;
     procedure SetDateTime(const AValue: TDateTime);
   public
   
@@ -106,20 +109,26 @@ type
     //Conversion Tools
     function  TypeKind:                           TJX4TValueKind;
     function  ToBKiBMiB:                          string;
-    function  ToPercent(Decimal: Integer = 2):    string;
-    function  ToStrFloat(Decimal: Integer = 2):   string;
-    function  ToSecondsFromNow:                   string;
-    function  ToSecToDuration:                    string;
-    function  ToString:                           string;
+    function  ToPercent(Decimal: Integer = 2;
+                      Symbol: Boolean = True):    string;
+    function  ToLimit:                            string;
+    function  FromSecFromNow:                     string;
+    function  FromSecToDuration:                  string;
+
+    function  ToString(Decimzl: Integer = 2):     string;
     function  ToInteger:                          int64;
     function  ToFloat:                            Extended;
-
+    function  ToBoolean:                          Boolean;
 
     property  ISO8601:      TDateTime read GetISO8601 write SetISO8601;
     property  ISO8601Utc:   TDateTime read GetISO8601Utc write SetISO8601Utc;
     property  Timestamp:    TDateTime read GetTimestamp write SetTimestamp;
     property  TimestampUtc: TDateTime read GetTimestampUtc write SetTimestampUtc;
+    property  TimestampStr:    string read GetTimestampStr;
+    property  TimestampUtcStr: string read GetTimestampUtcStr;
     property  DateTime :    TDateTime read GetDateTime write SetDateTime;
+    property  DateTimeStr :    string read GetDateTimeStr;
+
   end;
 
   TJX4Object = class(TObject)
@@ -167,6 +176,11 @@ uses
 
 function TJX4TValueHelper.TypeKind: TJX4TValueKind;
 begin
+  if Self.IsEmpty then
+  begin
+    Result := tkvEmpty;
+    Exit;
+  end;
   case Self.Kind of
     tkChar, tkString, tkWChar, tkLString, tkWString, tkUString: Result := tkvString;
     tkEnumeration: Result := tkvBool;
@@ -177,7 +191,7 @@ begin
   end;
 end;
 
-function TJX4TValueHelper.ToString: String;
+function TJX4TValueHelper.ToString(Decimzl: Integer): string;
 begin
   case self.TypeKind of
     tkvString: Result := Self.AsString;
@@ -213,12 +227,31 @@ begin
   end;
 end;
 
+function TJX4TValueHelper.ToBoolean: Boolean;
+begin
+  case self.TypeKind of
+    tkvString: Result := StrToBool(Self.AsString);
+    tkvBool: Result := Self.AsBoolean;
+    tkvInteger: Result := Self.AsInt64 = 0;
+    tkvFloat: Result := Self.AsExtended = 0;
+  else
+    Result := False;
+  end;
+end;
+
+
+function TJX4TValueHelper.ToLimit: string;
+begin
+  Result := '∞';
+  if Self.AsInt64 > 0  then Result := Self.ToString;
+end;
+
 function TJX4TValueHelper.ToBKiBMiB: string;
 var
   x: Extended;
 begin
   Result := '0 B';
-  if Self.TypeKind = tkvString then x := Self.AsString.ToInt64 else x := Self.AsInt64;
+  x := Self.ToInteger;
   if x < 0 then
   begin
     Result := 'N/A';
@@ -248,51 +281,49 @@ begin
   end;
 end;
 
-function TJX4TValueHelper.ToSecToDuration: string;
+function TJX4TValueHelper.FromSecToDuration: string;
 var
   Days, Hours, Mins, Secs: word;
   totalsecs: Int64;
 begin
-  if Self.TypeKind = tkvString then totalsecs := Self.AsString.ToInt64 else totalsecs := Self.AsInt64;
+  Result := '∞';
+  totalsecs := Self.ToInteger;
+  if totalsecs >= 8640000 then Exit;
   days := totalsecs div SecsPerDay;
   totalsecs := totalsecs mod SecsPerDay;
   hours := totalsecs div SecsPerHour;
   totalsecs := totalsecs mod SecsPerHour;
   mins := totalsecs div SecsPerMin;
   totalsecs := totalsecs mod SecsPerMin;
+  Result := '';
   secs := totalsecs;
-  if days >0 then
+  if days > 0 then
     Result := Result + days.ToString + 'd ';
-  Result := Result + hours.ToString + 'h ';
-  Result := Result + mins.ToString + 'm ';
+  if hours > 0 then
+    Result := Result + hours.ToString + 'h ';
+  if mins > 0 then
+    Result := Result + mins.ToString + 'm ';
   if days = 0 then
     Result := Result + secs.ToString + 's ';
 end;
 
-function TJX4TValueHelper.ToPercent(Decimal: Integer): string;
+function TJX4TValueHelper.ToPercent(Decimal: Integer; Symbol: Boolean): string;
 var
   x: Double;
 begin
   if Self.TypeKind = tkvString then x := Self.AsString.ToDouble else x := Self.AsExtended;
-  Result := '0 %';
+  Result := '0';
   if x < 0 then Exit;
-  Result := Format('%.' + Decimal.ToString + 'f', [x * 100] ) + ' %';
+  Result := Format('%.' + Decimal.ToString + 'f', [x * 100] );
+  if Symbol then Result := Result + ' %';
 end;
 
-function TJX4TValueHelper.ToSecondsFromNow: string;
+function TJX4TValueHelper.FromSecFromNow: string;
 var
   x: Int64;
 begin
   if Self.TypeKind = tkvString then x := Self.AsString.ToInt64 else x := Self.AsInt64;
   Result := DateTimeToStr(IncSecond(Now, x));
-end;
-
-function TJX4TValueHelper.ToStrFloat(Decimal: Integer): string;
-var
-  x: Double;
-begin
-  if Self.TypeKind = tkvString then x := Self.AsString.ToDouble else x := Self.AsExtended;
-  Result := Format('%.' + Decimal.ToString + 'f', [x ]);
 end;
 
 procedure TJX4TValueHelper.SetDateTime(const AValue: TDateTime);
@@ -328,6 +359,12 @@ begin
   Result := TDateTime(x);
 end;
 
+function TJX4TValueHelper.GetDateTimeStr: string;
+begin
+  Result := DateTimeToStr(Self.GetDateTime);
+end;
+
+
 function TJX4TValueHelper.GetISO8601: TDateTime;
 begin
   Result := ISO8601ToDate(Self.AsString, False);
@@ -346,6 +383,14 @@ begin
   Result := UnixToDateTime(x, False);
 end;
 
+function TJX4TValueHelper.GetTimestampStr: string;
+var
+  x: Int64;
+begin
+  if Self.TypeKind = tkvString then x := Self.AsString.ToInt64 else x := Self.AsInt64;
+  Result := DateTimeToStr(UnixToDateTime(x, False));
+end;
+
 function TJX4TValueHelper.GetTimestampUtc: TDateTime;
 var
   x: Int64;
@@ -354,6 +399,13 @@ begin
   Result := UnixToDateTime(Self.AsInt64, True);
 end;
 
+function TJX4TValueHelper.GetTimestampUtcStr: string;
+var
+  x: Int64;
+begin
+  if Self.TypeKind = tkvString then x := Self.AsString.ToInt64 else x := Self.AsInt64;
+  Result := DateTimeToStr(UnixToDateTime(Self.AsInt64, True));
+end;
 
 constructor TJX4Name.Create(const AName: string);
 begin
@@ -390,12 +442,11 @@ begin
     LAttr := TJX4Excluded(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Excluded));
     if Assigned(LAttr) then Exit;
   end;
-  case Self.Kind of
-    tkChar, tkString, tkWChar, tkLString, tkWString, tkUString:
-      LValue := '"' + TJX4Object.EscapeJSONStr(Self.AsString) + '"';
-    tkEnumeration: LValue := cBoolToStr[Self.AsBoolean];
-    tkInteger, tkInt64: LValue := Self.AsInt64.ToString;
-    tkFloat:
+  case Self.TypeKind of
+    tkvString:  LValue := '"' + TJX4Object.EscapeJSONStr(Self.AsString) + '"';
+    tkvBool:    LValue := cBoolToStr[Self.AsBoolean];
+    tkvInteger: LValue := Self.AsInt64.ToString;
+    tkvFloat:
       begin
         if  Self.AsExtended.ToString.IndexOf('.') = -1 then
           LValue := Self.AsExtended.ToString + '.0'
@@ -404,8 +455,8 @@ begin
       end;
   else
     if joNullToEmpty in AIOBlock.Options then Exit;
+    Self := Nil;
   end;
-
   if Assigned(AIOBlock.Field) then
   begin
     LName := AIOBlock.Field.Name;
@@ -461,7 +512,6 @@ begin
     if Assigned(LAttr) then Self := TJX4Default(LAttr).Value else Self := Nil;
     Exit;
   end;
-
   if LJPair.JsonValue.Value.IsEmpty then
   begin
     LAttr := TJX4Default(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Default));
