@@ -21,6 +21,7 @@ type
   TConsoAPIResult = class(TJX4Object)
     status: TValue;
     message: TValue;
+    body: TValue;
     usage_point_id: TValue;
     start: TValue;
     &end: TValue;
@@ -70,7 +71,6 @@ begin
     until ((Res <> nil) or (Retries <= 0));
     if Res = nil then Exit;
     Result := Res.StatusCode;
-    for var Cookie in  Http.CookieManager.Cookies do
   finally
     HTTP.Free;
   end;
@@ -81,6 +81,7 @@ var
   LURL: string;
   LBody: TStringStream;
 begin
+  Result := Nil;
   LUrl := 'https://conso.boris.sh/api/' + TRttiEnumerationType.GetName(ConsoType)
           + '?prm='   + Prm
           + '&start=' + FormatDateTime('yyyy-mm-dd', StartDate)
@@ -89,8 +90,11 @@ begin
 
   LBody := TStringStream.Create;
   try
-    qConsoCom('GET',Token,  LUrl, Nil, LBody);
-    Result := TJX4Object.FromJSON<TConsoAPIResult>(LBody.DataString, [joRaiseException]);
+    if qConsoCom('GET',Token,  LUrl, Nil, LBody) = 200 then
+    begin
+      Result := TJX4Object.FromJSON<TConsoAPIResult>(LBody.DataString, [joRaiseException]);
+      Result.Body := TJX4Object.FormatJSON(LBody.DataString);
+    end;
   finally
     LBody.Free;
   end;

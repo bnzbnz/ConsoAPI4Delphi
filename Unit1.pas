@@ -40,7 +40,7 @@ var
   Form1: TForm1;
 
 implementation
-uses uConsoAPI, DateUtils;
+uses uConsoAPI, DateUtils, uJX4Value;
 
 {$R *.fmx}
 
@@ -79,12 +79,12 @@ var
 begin
   Settings := Nil;
   DateStart.Date := Now - 10;
-  DateEnd.Date := Now;
+  DateEnd.Date := Now - 1;
 
   // Load Settings
   try
   try
-    TJX4Object.LoadFromFile('ConsoAPI.json', Json, TEncoding.UTF8);
+    TJX4Object.LoadFromFile('..\..\..\ConsoAPI.json', Json, TEncoding.UTF8);
     Settings        := TJX4Object.FromJson<TSetttings>(Json);
     Prm.Text        := Settings.Prm.AsString;
     Token.Text      := Settings.Token.AsString;

@@ -139,6 +139,7 @@
         <DCCReference Include="uJsonX4\uJX4List.pas"/>
         <DCCReference Include="uJsonX4\uJX4Object.pas"/>
         <DCCReference Include="uJsonX4\uJX4Rtti.pas"/>
+        <DCCReference Include="uJsonX4\uJX4Value.pas"/>
         <None Include="..\Token.inc"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
@@ -181,13 +182,13 @@
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="New1.inc" Configuration="Debug" Class="ProjectFile">
+                <DeployFile LocalName="..\Token.inc" Configuration="Debug" Class="ProjectFile">
                     <Platform Name="Win32">
                         <RemoteDir>.\</RemoteDir>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="Win32\Debug\Project1.exe" Configuration="Debug" Class="ProjectOutput">
+                <DeployFile LocalName="Dcu\Win32\Debug\Project1.exe" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Win32">
                         <RemoteName>Project1.exe</RemoteName>
                         <Overwrite>true</Overwrite>
