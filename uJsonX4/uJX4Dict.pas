@@ -26,10 +26,12 @@ unit uJX4Dict;
 interface
 uses
     System.Generics.Collections
+  , System.SysUtils
   , RTTI
   , uJX4List
   , uJX4Object
   , Classes
+  , zLib
   ;
 
 type
@@ -43,6 +45,8 @@ type
     procedure JSONDeserialize(AIOBlock: TJX4IOBlock);
     procedure JSONClone(ADestDict: TJX4DictOfValues; AOptions: TJX4Options = []);
     procedure JSONMerge(AMergedWith: TJX4DictOfValues; AOptions: TJX4Options = []);
+
+    function  SaveToJSONFile(const AFilename: string; AOptions: TJX4Options = [joNullToEmpty]; AEncoding: TEncoding = Nil; AZipIt: TCompressionLevel = clNone;  AUseBOM: Boolean = False): Int64;
 
     class function New: TJX4DictOfValues;
     class function NewAdd(AKey: string; AValue: TValue): TJX4DictOfValues;
@@ -79,6 +83,7 @@ type
     function       Clone<T:class, constructor>(AOptions: TJX4Options = []): T; overload;
     procedure      Merge(AMergedWith: TJX4Dict<V>; AOptions: TJX4Options = []); overload;
     procedure      Merge(AMergedWith: TJX4ValList; AOptions: TJX4Options = []); overload;
+    function       SaveToJSONFile(const AFilename: string; AOptions: TJX4Options = [joNullToEmpty]; AEncoding: TEncoding = NIl; AZipIt: TCompressionLEvel = clNone; AUseBOM: Boolean = False): Int64;
 
     property       EleAdded:    TStringList read FAdded;
     property       EleModified: TStringList read FModified;
@@ -93,11 +98,10 @@ implementation
 uses
     uJX4Rtti
   , uJX4Value
-  , SysUtils
   , JSON
   ;
 
-{ TJX3DictOfValues }
+{ TJX4DictOfValues }
 
 function TJX4DictOfValues.Clone(AOptions: TJX4Options): TJX4DictOfValues;
 begin
@@ -145,8 +149,8 @@ begin
 
   if Count = 0 then
   begin
-    if Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
-      raise Exception.Create(Format('"%s" (TJX3Dic) : a value is required', [LName]));
+    if Assigned(AIOBlock.Field) and Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
+      raise Exception.Create(Format('"%s" (TJX4Dic) : a value is required', [LName]));
 
     if joNullToEmpty in AIOBlock.Options then Exit;
 
@@ -162,7 +166,7 @@ begin
   LIOBlock := TJX4IOBlock.Create;
   for Lkp in Self do
   begin
-      LIOBlock.Init(LKp.Key, Nil, Nil, AIOBlock.Options);
+      LIOBlock.Init(LKp.Key, Nil, Nil, AIOBlock.Options, AIOBlock.PAbort);
       LTValue := Lkp.Value.JSONSerialize(LIOBlock);
       if not LTValue.IsEmpty then LParts.Add(LTValue.AsString);
   end;
@@ -196,7 +200,6 @@ begin
   if not Assigned(AIOBlock.JObj) then begin Clear; Exit end;;
   if AIOBlock.JObj.Count = 0 then begin Clear; Exit end;
   if not Assigned(AIOBlock.JObj.Pairs[0].JsonValue) then begin Clear; Exit end;
-  if AIOBlock.JObj.Pairs[0].JsonValue.Null then begin Clear; Exit end;;
 
   LIOBlock := TJX4IOBlock.Create;
   for LPair in AIOBlock.JObj do
@@ -216,7 +219,7 @@ begin
     end else
       LJObj := TJSONObject.Create(LPair);
 
-    LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options);
+    LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options, AIOBlock.PAbort);
     LNewObj.JSONDeserialize(LIOBlock);
 
     if LJObjDestroy then FreeAndNil(LJObj);
@@ -253,7 +256,12 @@ begin
     Result.Add(AKeys[LCnt], AValues[LCnt]);
 end;
 
-{ TJX3Dic<V> }
+function TJX4DictOfValues.SaveToJSONFile(const AFilename: string; AOptions: TJX4Options; AEncoding: TEncoding; AZipIt: TCompressionLevel; AUseBOM: Boolean): Int64;
+begin
+  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self, AOptions), AEncoding, AZipIt, AUseBOM);
+end;
+
+{ TJX4Dic<V> }
 
 function TJX4Dict<V>.Clone<T>(AOptions: TJX4Options): T;
 begin
@@ -317,8 +325,8 @@ begin
 
   if Count = 0 then
   begin
-    if Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
-      raise Exception.Create(Format('"%s" (TJX3Dic) : a value is required', [LName]));
+    if Assigned(AIOBlock.Field) and Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
+      raise Exception.Create(Format('"%s" (TJX4Dic) : a value is required', [LName]));
 
     if joNullToEmpty in AIOBlock.Options then Exit;
 
@@ -330,21 +338,25 @@ begin
   end;
 
   LParts := TList<string>.Create;
-  LParts.Capacity := Self.Count;
   LIOBlock := TJX4IOBlock.Create;
-  for Lkp in Self do
-  begin
-    LObj := TValue.From<V>(Lkp.Value).AsObject;
-    if Assigned(LObj) then
+  try
+    LParts.Capacity := Self.Count;
+    for Lkp in Self do
     begin
-      LIOBlock.Init(LKp.Key, Nil, Nil, AIOBlock.Options);
-      LTValue := TxRTTI.CallMethodFunc('JSONSerialize', LObj, [ LIOBlock ]);
-      if not LTValue.IsEmpty then LParts.Add(LTValue.AsString);
+      if Assigned(AIOBlock.PAbort) and AIOBlock.PAbort^ then Exit;
+      LObj := TValue.From<V>(Lkp.Value).AsObject;
+      if Assigned(LObj) then
+      begin
+        LIOBlock.Init(LKp.Key, Nil, Nil, AIOBlock.Options, AIOBlock.PAbort);
+        LTValue := TxRTTI.CallMethodFunc('JSONSerialize', LObj, [ LIOBlock ]);
+        if not LTValue.IsEmpty then LParts.Add(LTValue.AsString);
+      end;
     end;
+    LRes := TJX4Object.JsonListToJsonString(LParts);
+  finally
+    LIOBlock.Free;
+    LParts.Free;
   end;
-  LIOBlock.Free;
-  LRes := TJX4Object.JsonListToJsonString(LParts);
-  LParts.Free;
 
   if AIOBlock.JsonName.IsEmpty then
     Result := '{' + LRes + '}'
@@ -378,36 +390,39 @@ begin
   if not Assigned(AIOBlock.JObj) then begin Clear; Exit end;;
   if AIOBlock.JObj.Count = 0 then begin Clear; Exit end;
   if not Assigned(AIOBlock.JObj.Pairs[0].JsonValue) then begin Clear; Exit end;
-  if AIOBlock.JObj.Pairs[0].JsonValue.Null then begin Clear; Exit end;;
 
   LIOBlock := TJX4IOBlock.Create;
-  for LPair in AIOBlock.JObj do
-  begin
-    LNewObj := V.Create;
-    Add(LPair.JsonString.value, LNewObj);
-
-    LPair.JsonValue.Owned := False;
-    LPair.Owned := False;
-    LJObjDestroy := True;
-    if LPair.JsonValue is TJSONObject then
+  try
+    for LPair in AIOBlock.JObj do
     begin
-       LJObjDestroy := False;
-       LJObj := LPair.JsonValue as TJSONObject;
-    end else
-    if LPair.JsonValue is TJSONArray then
-    begin
-      LJObj := TJSONObject.Create(TJSONPAir.Create('', LPair.JsonValue));
-    end else
-      LJObj := TJSONObject.Create(LPair);
+      if Assigned(AIOBlock.PAbort) and AIOBlock.PAbort^ then Exit;
+      LNewObj := V.Create;
+      Add(LPair.JsonString.value, LNewObj);
 
-    LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options);
-    TxRTTI.CallMethodProc( 'JSONDeserialize', LNewObj, [ LIOBlock ]);
+      LPair.JsonValue.Owned := False;
+      LPair.Owned := False;
+      LJObjDestroy := True;
+      if LPair.JsonValue is TJSONObject then
+      begin
+         LJObjDestroy := False;
+         LJObj := LPair.JsonValue as TJSONObject;
+      end else
+      if LPair.JsonValue is TJSONArray then
+      begin
+        LJObj := TJSONObject.Create(TJSONPAir.Create('', LPair.JsonValue));
+      end else
+        LJObj := TJSONObject.Create(LPair);
 
-    if LJObjDestroy then FreeAndNil(LJObj);
-    LPair.Owned := True;
-    LPair.JsonValue.Owned := True;
+      LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options, AIOBlock.PAbort);
+      TxRTTI.CallMethodProc( 'JSONDeserialize', LNewObj, [ LIOBlock ]);
+
+      if LJObjDestroy then FreeAndNil(LJObj);
+      LPair.Owned := True;
+      LPair.JsonValue.Owned := True;
+    end;
+  finally
+    LIOBlock.Free;
   end;
-  LIOBlock.Free;
 end;
 
 procedure TJX4Dict<V>.JSONMerge(AMergedWith: TJX4Dict<V>; AOptions: TJX4Options);
@@ -520,5 +535,9 @@ begin
   end;
 end;
 
+function TJX4Dict<V>.SaveToJSONFile(const AFilename: string; AOptions: TJX4Options = [joNullToEmpty]; AEncoding: TEncoding = NIl; AZipIt: TCompressionLEvel = clNone; AUseBOM: Boolean = False): Int64;
+begin
+  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self, AOptions), AEncoding, AZipIt, AUseBOM);
+end;
 
 end.

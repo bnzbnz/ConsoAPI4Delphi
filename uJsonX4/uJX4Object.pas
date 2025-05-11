@@ -32,12 +32,13 @@ uses
   , JSON
   , SysUtils
   , uJX4Rtti
+  , zLib
   ;
 
 const
-  CJX4Version = $0102; // 01.02
+  CJX4Version = $0103; // 01.03
   CBoolToStr: array[Boolean] of string = ('false','true');
-  
+
 type
 
   sFormatType= (sftYAML, sftJSON);
@@ -69,6 +70,7 @@ type
     constructor Create(const AValue: Int64); overload;
     constructor Create(const AValue: Boolean); overload;
     constructor Create(const AValue: Extended); overload;
+    constructor Create(const ANilValue: Pointer); overload;
   end;
 
   TJX4Required = class(TCustomAttribute);
@@ -83,9 +85,10 @@ type
     JsonName:   string;
     Field:      TRttiField;
     Options:    TJX4Options;
+    PAbort:     PBoolean;
     // Out
-    constructor Create(AJsonName: string = ''; AJObj: TJSONObject = Nil; AField: TRttiField = Nil; AOptions: TJX4Options = []);
-    procedure   Init(AJsonName: string; AJObj: TJSONObject; AField: TRttiField; AOptions: TJX4Options);
+    constructor Create(AJsonName: string = ''; AJObj: TJSONObject = Nil; AField: TRttiField = Nil; AOptions: TJX4Options = []; AAbort: PBoolean = Nil);
+    procedure   Init(AJsonName: string; AJObj: TJSONObject; AField: TRttiField; AOptions: TJX4Options; AAbort: PBoolean);
   end;
 
   TJX4Object = class(TObject)
@@ -101,9 +104,11 @@ type
     procedure       JSONMerge(AMergedWith: TObject; AOptions: TJX4Options);
 
     class function  New<T:class, constructor>: T;
-    class function  ToJSON(AObj: TObject; AOptions: TJX4Options = [ joNullToEmpty ]): string; overload;
-    function        ToJSON(AOptions: TJX4Options = [ joNullToEmpty ]): string; overload;
-    class function  FromJSON<T:class, constructor>(const AJson: string; AOptions: TJX4Options = []): T;
+    class function  ToJSON(AObj: TObject; AOptions: TJX4Options = [ joNullToEmpty ]; AAbort: PBoolean = Nil): string; overload;
+    function        ToJSON(AOptions: TJX4Options = [ joNullToEmpty ]; AAbort: PBoolean = Nil): string; overload;
+    class function  FromJSON<T:class, constructor>(const AJson: string; AOptions: TJX4Options = []; AAbort: PBoolean = Nil): T; overload;
+    class function  ToJSONStream(AObj: TObject; AOptions: TJX4Options = []; AAbort: PBoolean = Nil): TStream; overload;
+
 
     function        Clone<T:class, constructor>(AOptions: TJX4Options= []): T; overload;
     procedure       Merge(AMergedWith: TObject; AOptions: TJX4Options = []);
@@ -125,11 +130,11 @@ type
 
     // Common
     class function  LoadFromFile(const AFilename: string; var AStr: string; AEncoding: TEncoding = Nil): Int64; overload;
-    class function  SaveToFile(const Filename: string; const AStr: string; AEncoding: TEncoding = Nil; UseBOM: Boolean = False): Int64; overload;
+    class function  SaveToFile(const AFilename: string; const AStr: string; AEncoding: TEncoding; AZipIt: TCompressionLevel = clNone; UseBOM: Boolean = False; aAbort: PBoolean = Nil): Int64; overload;
 
     // JSON
     class function  LoadFromJSONFile<T:class, constructor>(const AFilename: string; AEncoding: TEncoding = Nil): T; overload;
-    function        SaveToJSONFile(const AFilename: string; AEncoding: TEncoding; AUseBOM: Boolean = False): Int64; overload;
+    function        SaveToJSONFile(const AFilename: string; Options: TJX4Options; AEncoding: TEncoding;  AZipIt: TCompressionLevel = clNone; AUseBOM: Boolean = False; AAbort: PBoolean = Nil): Int64; overload;
 
      // YAML
     class function  ToYAML(AObj: TJX4Object; AOptions: TJX4Options = [ joNullToEmpty ]): string; overload;
@@ -176,22 +181,29 @@ begin
   Value := AValue;
 end;
 
-constructor TJX4Default.Create(const AValue: Extended); 
+constructor TJX4Default.Create(const AValue: Extended);
 begin
   Value := AValue;
 end;
 
-constructor TJX4IOBlock.Create(AJsonName: string; AJObj: TJSONObject; AField: TRttiField; AOptions: TJX4Options);
+constructor TJX4Default.Create(const ANilValue: Pointer);
 begin
-  Init(AJsonName, AJObj, AField, AOptions);
+  Value := Nil;
 end;
 
-procedure TJX4IOBlock.Init(AJsonName: string; AJObj: TJSONObject; AField: TRttiField; AOptions: TJX4Options);
+
+constructor TJX4IOBlock.Create(AJsonName: string; AJObj: TJSONObject; AField: TRttiField; AOptions: TJX4Options; AAbort: PBoolean);
+begin
+  Init(AJsonName, AJObj, AField, AOptions, AAbort);
+end;
+
+procedure TJX4IOBlock.Init(AJsonName: string; AJObj: TJSONObject; AField: TRttiField; AOptions: TJX4Options; AAbort: PBoolean);
 begin
   JObj :=       AJObj;
   JsonName :=   AJsonName;
   Field :=      AField;
   Options :=    AOptions;
+  PAbort :=     AAbort;
 end;
 
 { TJX4Object }
@@ -292,10 +304,11 @@ begin
     LParts.Capacity := Length(LFields);
     for LField in LFields do
     begin
+      if Assigned(AIOBlock.PAbort) and AIOBlock.PAbort^ then Exit;
       if TxRTTI.FieldAsTObject(Self, LField, LObj, [mvPublic]) then
       begin
         if not Assigned(LObj) then Continue; // Unmanaged
-        LIOBlock.Init(LField.Name, Nil, LField, AIOBlock.Options);
+        LIOBlock.Init(LField.Name, Nil, LField, AIOBlock.Options, AIOBlock.PAbort);
         LTValue := TxRTTI.CallMethodFunc('JSONSerialize', LObj, [LIOBlock]);
         if not LTValue.IsEmpty then LParts.Add(LTValue.AsString);
         Continue;
@@ -304,7 +317,7 @@ begin
       begin
         if not ((joNullToEmpty in AIOBlock.Options) and LTValue.IsEmpty) then
         begin
-          LIOBlock.Init(LField.Name, Nil, LField, AIOBlock.Options);
+          LIOBlock.Init(LField.Name, Nil, LField, AIOBlock.Options, AIOBlock.PAbort);
           LTValueRec := LTValue.JSONSerialize(LIOBlock);
           if not LTValueRec.IsEmpty then LParts.Add(LTValueRec.AsString);
         end;
@@ -391,7 +404,7 @@ begin
 
     for LField in TxRTTI.GetFields(Self) do
     begin
-
+      if Assigned(AIOBlock.PAbort) and AIOBlock.PAbort^ then Exit;
       if  not ((LField.Visibility in [mvPublic])
           and ((LField.FieldType.TypeKind in [tkClass])
           or (LField.FieldType.TypeKind in [tkRecord]))) then Continue;
@@ -416,11 +429,12 @@ begin
       LFieldFound := False;
       for LJPair in  AIOBlock.JObj do
       begin
-        if LJPair.JsonValue is TJSONNull then Break;
+        if  Assigned(AIOBlock.PAbort) and AIOBlock.PAbort^ then Exit;
         if LName = LJPair.JsonString.Value then
         begin
           LFieldFound := True;
-          LJPair.Owned := False;
+          if LJPair.JsonValue is TJSONNull then Break;
+           LJPair.Owned := False;
           LJPair.JsonString.Owned := False;
           LJPair.JsonValue.Owned := False;
           if (LJPair.JsonValue is TJSONObject) then
@@ -428,11 +442,11 @@ begin
           else
             LJObj := TJSONObject.Create(LJPair);
 
-          LIOBlock.Init(LField.Name, LJObj, LField, AIOBlock.Options);
+          LIOBlock.Init(LField.Name, LJObj, LField, AIOBlock.Options, AIOBlock.PAbort);
           if TxRtti.FieldAsTValue(Self, LField, LTValue) then
           begin
             LTValue.JSONDeserialize(LIOBlock);
-            if LTValue.IsEmpty then LTValue := '';
+            if LTValue.IsEmpty then LTValue := Nil;
             LField.SetValue(Self, LTValue);
           end else begin
             LObj := LField.GetValue(Self).AsObject;
@@ -469,10 +483,10 @@ begin
               LField.SetValue(Self, TJX4Default(LAttr).Value)
             else begin
               LObj := LField.GetValue(Self).AsObject;
-              TxRTTI.CallMethodProc('JSONSeltValue', LObj, [LName, TJX4Default(LAttr).Value, LIOBlock]);
+              TxRTTI.CallMethodProc('JSONSetValue', LObj, [LName, TJX4Default(LAttr).Value, LIOBlock]);
             end;
           end;
-          continue;
+          Continue;
         end;
 
           if Assigned(TJX4Required(TxRTTI.GetFieldAttribute(LField, TJX4Required))) then
@@ -488,7 +502,7 @@ begin
   end;
 end;
 
-class function TJX4Object.ToJSON(AObj: TObject; AOptions: TJX4Options): string;
+class function TJX4Object.ToJSON(AObj: TObject; AOptions: TJX4Options; AAbort: PBoolean): string;
 var
   LIOBlock: TJX4IOBlock;
   LResult: TValue;
@@ -496,8 +510,9 @@ begin
   LIOBlock := Nil;
   try
   try
-    LIOBlock := TJX4IOBlock.Create('', nil, nil, AOptions);
+    LIOBlock := TJX4IOBlock.Create('', nil, nil, AOptions, aAbort);
     LResult := TxRTTI.CallMethodFunc('JSONSerialize', AObj, [LIOBlock]);
+    if Assigned(AAbort) and AAbort^ then LResult := '';
     if not LResult.IsEmpty then Result := LResult.AsString;
   finally
     LIOBlock.Free;
@@ -506,30 +521,33 @@ begin
     on Ex: Exception do
     begin
       Result := '';
-      if joRaiseException in AOptions then Raise;
+      if joRaiseException in AOptions then raise;
     end;
   end;
 end;
 
-function TJX4Object.ToJSON(AOptions: TJX4Options): string;
+function TJX4Object.ToJSON(AOptions: TJX4Options; AAbort: PBoolean): string;
 begin
-  Result := ToJSON(Self, AOptions);
+  Result := ToJSON(Self, AOptions, AAbort);
 end;
 
-class function TJX4Object.FromJSON<T>(const AJson: string; AOptions: TJX4Options): T;
+class function TJX4Object.FromJSON<T>(const AJson: string; AOptions: TJX4Options; AAbort: PBoolean): T;
 var
   LIOBlock: TJX4IOBlock;
   LJObj:    TJSONObject;
 begin
+  Result := Nil;
   LIOBlock := Nil;
   LJObj := Nil;
   try
-    Result := T.Create;
     if AJson.Trim.IsEmpty then Exit;
     try
       LJObj := TJSONObject.ParseJSONValue(AJson, True, joRaiseException in AOptions) as TJSONObject;
-      LIOBlock := TJX4IOBlock.Create('', LJObj, Nil, AOptions);
+      if not Assigned(LJObj) then Exit;
+      Result := T.Create;
+      LIOBlock := TJX4IOBlock.Create('', LJObj, Nil, AOptions, AAbort);
       TxRTTI.CallMethodProc('JSONDeserialize', Result, [LIOBlock]);
+      if Assigned(AAbort) and AAbort^ then FreeAndNil(Result);
     except
       on Ex: Exception do
       begin
@@ -540,6 +558,29 @@ begin
   finally
     LJObj.Free;
     LIOBlock.Free;
+  end;
+end;
+
+class function TJX4Object.ToJSONStream(AObj: TObject; AOptions: TJX4Options; AAbort: PBoolean): TStream;
+var
+  LIOBlock: TJX4IOBlock;
+begin
+  LIOBlock := Nil;
+  try
+  try
+    LIOBlock := TJX4IOBlock.Create('', nil, nil, AOptions, aAbort);
+    Result := TStringStream.Create( TxRTTI.CallMethodFunc('JSONSerialize', AObj, [LIOBlock]).AsString );
+    if Assigned(AAbort) and AAbort^ then FreeAndNil(Result);
+    if Assigned(Result) then Result.Position := 0;
+  finally
+    LIOBlock.Free;
+  end;
+  except
+    on Ex: Exception do
+    begin
+      FreeAndNil(Result);
+      if joRaiseException in AOptions then raise;
+    end;
   end;
 end;
 
@@ -627,7 +668,7 @@ begin
   while LP < LendP do
   begin
     case LP^ of
-      #0..#31, '\', '"' : begin LMatch := LP; Break; end;
+      #0..#31, '\', '/', '"' : begin LMatch := LP; Break; end;
     end;
     Inc(LP);
   end;
@@ -652,6 +693,7 @@ begin
       #13: LSb.Append('\r');
       '\': LSb.Append('\\');
       '"': LSb.Append('\"');
+      '/': LSb.Append('\/');
     else
       LSb.Append(LP^);
     end;
@@ -791,9 +833,9 @@ begin
   else if (LBytes[0] = $FF) and (LBytes[1] = $FE) then
     begin Result := TEncoding.Unicode; AStream.Position := 2; exit; end
   else if (LBytes[0] = $00) and (LBytes[1] = $00) and (LBytes[2] = $FE) and (LBytes[3] = $FF) then
-      raise Exception.Create('UTF-32 BE not implemented in TEncoding')  // UTF-32 BE
+      raise Exception.Create('UTF-32 BE Encoding not implemented')  // UTF-32 BE
   else if (LBytes[0] = $FF) and (LBytes[1] = $FE) and (LBytes[2] = $00) and (LBytes[3] = $00) then
-      raise Exception.Create('UTF-32 LE not implemented in TEncoding'); // UTF-32 LE
+      raise Exception.Create('UTF-32 LE Encoding not implemented'); // UTF-32 LE
 
   // No BOM
   AStream.Position := 0;
@@ -841,24 +883,59 @@ end;
 
 class function TJX4Object.LoadFromFile(const AFilename: string; var AStr: string; AEncoding: TEncoding): Int64;
 var
-  LFs : TFileStream;
-  LSs: TStringStream;
+  &In : TStream;
+  &Out: TStream;
+  &Tmp: Tstream;
+  Res: TStringStream;
+  LBytes: TBytes;
+  DecompressionStream: TZDecompressionStream;
 begin
-  LFs := nil;
-  LSs := Nil;
+  AStr := '';
+  &In := nil;
+  &Out:= Nil;
+  Res := Nil;
+  DecompressionStream := Nil;
+  Result := 0;
   try
-    LFs := TFileStream.Create(AFilename, fmOpenRead + fmShareDenyNone);
+    if not FileExists(AFilename) then Exit;
+
+    &In := TFileStream.Create(AFilename, fmOpenRead + fmShareDenyNone);
+    if not Assigned(&In) then Exit;
+
+    if &In.Size < 2 then Exit;
+    &In.Position := 0;
+    SetLength(LBytes, 2);
+    &In.Read(LBytes, 2);
+    &In.Position := 0;
+
+    &Out:= TMemoryStream.Create;
+
+    if    ((LBytes[0] = $78) and (LBytes[1] = $01))  // No Compression/low
+       or ((LBytes[0] = $78) and (LBytes[1] = $5E))  // Fast Compression
+       or ((LBytes[0] = $78) and (LBytes[1] = $9C))  // Default Compression
+       or ((LBytes[0] = $78) and (LBytes[1] = $DA))  // Best Compression
+    then begin
+      DecompressionStream  := TZDecompressionStream.Create(&In);
+      DecompressionStream.Position := 0;
+      &Out.CopyFrom(DecompressionStream);
+      &Out.Position := 0;
+      &Tmp := &Out;
+    end else begin
+      &Tmp := &In;
+    end;
 
     if Assigned(AEncoding) then
-      LSs := TStringStream.Create('', AEncoding)
+      Res := TStringStream.Create('', AEncoding)
     else
-      LSs := TStringStream.Create('', GetStreamEncoding(LFs));
+      Res := TStringStream.Create('', GetStreamEncoding(&Out));
 
-    Result := LSs.CopyFrom(LFs, LFs.Size - LFs.Position);
-    AStr := LSS.DataString;
+    Result := Res.CopyFrom(&Tmp);
+    AStr := Res.DataString;
   finally
-    LSs.Free;
-    LFs.Free;
+    DecompressionStream.Free;
+    &Out.Free;
+    &In.Free;
+    Res.Free;
   end;
 end;
 
@@ -867,31 +944,43 @@ var
   LJstr: string;
 begin
   Result := Nil;
-  if not FileExists(AFilename) then Exit;
   LoadFromFile(AFilename, LJStr, AEncoding);
-  Result := TJX4Object.FromJSON<T>(LJStr);
+  if LJStr.IsEmpty then Result := Nil else Result := TJX4Object.FromJSON<T>(LJStr);
 end;
 
-class function TJX4Object.SaveToFile(const Filename: string; const AStr: string; AEncoding: TEncoding; UseBOM: Boolean): Int64;
+class function TJX4Object.SaveToFile(const AFilename: string; const AStr: string; AEncoding: TEncoding; AZipIt: TCompressionLevel; UseBOM: Boolean; aAbort: PBoolean): Int64;
 var
-  LFS: TFileStream;
-  LSS: TStringStream;
+  Zip:  TZCompressionStream;
+  &Out: TFileStream;
+  &In:  TStringStream;
 begin
-  LFS := nil;
-  LSS := Nil;
+  Result:= 0;
+  &Out  := Nil;
+  &In   := Nil;
+  Zip   := Nil;
   try
-    LFS := TFileStream.Create(Filename, fmCreate or fmShareDenyWrite);
-    if Assigned(AEncoding) then
+    if not Assigned(AEncoding) then AEncoding := TEncoding.UTF8;
+    if (AEncoding = TEncoding.UTF8) and UseBOM then &Out.writeData($00BFBBEF, 3);
+    if  AEncoding = TEncoding.BigEndianUnicode then &Out.writeData($FFFE, 2);
+    if  AEncoding = TEncoding.Unicode then &Out.writeData($FEFF, 2);
+
+    &In := TStringStream.Create(AStr, AEncoding);
+    CreateDir(ExtractFilePath(AFilename));
+    &Out := TFileStream.Create(AFilename, fmCreate);
+
+   if AZipIt <> clNone then
     begin
-      if (AEncoding = TEncoding.UTF8) and UseBOM then LFs.writeData($00BFBBEF, 3);
-      if AEncoding = TEncoding.BigEndianUnicode then LFs.writeData($FFFE, 2);
-      if AEncoding = TEncoding.Unicode then LFs.writeData($FEFF, 2);
+      Zip := TZCompressionStream.Create(AZipIt, &Out);
+      Zip.CopyFrom(&In);
+      Result := &Out.Size;
+    end else begin
+       &Out.CopyFrom(&In);
+       Result := &Out.Size;
     end;
-    LSS := TStringStream.Create(AStr, AEncoding);
-    Result := LFS.CopyFrom(LSS, -1);
   finally
-    LSS.Free;
-    LFS.Free;
+    Zip.Free;
+    &Out.Free;
+    &In.Free;
   end;
 end;
 
@@ -905,9 +994,11 @@ begin
   Result := ToYAML(Self, AOptions);
 end;
 
-function TJX4Object.SaveToJSONFile(const AFilename: string; AEncoding: TEncoding; AUseBOM: Boolean): Int64;
+function TJX4Object.SaveToJSONFile(const AFilename: string; Options: TJX4Options; AEncoding: TEncoding; AZipIt: TCompressionLevel; AUseBOM: Boolean; AAbort: PBoolean): Int64;
 begin
-  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self), AEncoding, AUseBOM);
+  Result := 0;
+  if Assigned(AAbort) and (AAbort^) then Exit;
+  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self, Options, AAbort), AEncoding, AZipIt, AUseBOM, AAbort);
 end;
 
 class function TJX4Object.SaveToYAMLFile(const Filename: string; const AStr: string): Int64;
@@ -925,7 +1016,6 @@ var
   LJstr: string;
 begin
   Result := Nil;
-  if not FileExists(AFilename) then Exit;
   LoadFromFile(AFilename, LJStr, AEncoding);
   Result := TJX4Object.FromJSON<T>(TYAMLUtils.YAMLToJSON(LJStr,0));
 end;

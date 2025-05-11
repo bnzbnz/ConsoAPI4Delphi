@@ -30,6 +30,7 @@ uses
   , SysUtils
   , RTTI
   , uJX4Object
+  , zLib
   ;
 
 type
@@ -56,7 +57,7 @@ type
     function        Clone(AOptions: TJX4Options = []): TJX4ListOfValues;
     procedure       Merge(AMergedWith: TJX4ListOfValues; AOptions: TJX4Options = []);
 
-    function        SaveToJSONFile(const AFilename: string; AEncoding: TEncoding; AUseBOM: Boolean = False): Int64;
+    function        SaveToJSONFile(const AFilename: string; AOptions: TJX4Options = [joNullToEmpty]; AEncoding: TEncoding = Nil; AZipIT: TCompressionLevel = clNone; AUseBOM: Boolean = False): Int64;
 
     property        EleAdded:    TList<TValue> read FAdded;
     property        EleDeleted:  TList<TValue> read FDeleted;
@@ -87,7 +88,7 @@ type
 
     function        Clone<V:class, constructor>(AOptions: TJX4Options = []): V; overload;
 
-    function        SaveToJSONFile(const AFilename: string; AEncoding: TEncoding; AUseBOM: Boolean = False): Int64;
+    function        SaveToJSONFile(const AFilename: string; AOptions: TJX4Options = [joNullToEmpty]; AEncoding: TEncoding = Nil; AZipIT: TCompressionLevel = clNone; AUseBOM: Boolean = False): Int64;
 
     property       EleAdded:    TStringList read FAdded;
     property       EleModified: TStringList read FModified;
@@ -105,7 +106,7 @@ uses
   , System.TypInfo
   ;
 
-{ TJX3ListOfValues }
+{ TJX4ListOfValues }
 
 constructor TJX4ListOfValues.Create;
 begin
@@ -155,29 +156,28 @@ begin
   if AIOBlock.JObj.Count = 0 then begin Clear; Exit end;;
   if not Assigned(AIOBlock.JObj.Pairs[0].JsonValue) then begin Clear; Exit end;
   if AIOBlock.JObj.Pairs[0].JsonValue.Null then begin Clear; Exit end;;
-  if TJSONArray(AIOBlock.JObj.Pairs[0].JsonValue) is TJSONArray then
+  if not (AIOBlock.JObj.Pairs[0].JsonValue is TJSONArray) then begin Clear; Exit end;
+
+  LIOBlock := TJX4IOBlock.Create;
+  for LEle in TJSONArray(AIOBlock.JObj.Pairs[0].JsonValue) do
   begin
-    LIOBlock := TJX4IOBlock.Create;
-    for LEle in TJSONArray(AIOBlock.JObj.Pairs[0].JsonValue) do
+    if LELe is TJSONObject then
     begin
-      if LELe is TJSONObject then
-      begin
-        LJObj :=  LEle as TJSONObject;
-        LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options);
-        LTValue.JSONDeserialize(LIOBlock);
-        Add(LTValue);
-      end else begin
-        LEle.Owned := False;
-        LJObj :=  TJSONObject.Create(TJSONPair.Create('', LEle));
-        LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options);
-        LTValue.JSONDeserialize(LIOBlock);
-        Add(LTValue);
-        LJObj.Free;;
-        LEle.Owned := True;
-      end;
+      LJObj :=  LEle as TJSONObject;
+      LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options, AIOBlock.PAbort);
+      LTValue.JSONDeserialize(LIOBlock);
+      Add(LTValue);
+    end else begin
+      LEle.Owned := False;
+      LJObj :=  TJSONObject.Create(TJSONPair.Create('', LEle));
+      LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options, AIOBlock.PAbort);
+      LTValue.JSONDeserialize(LIOBlock);
+      Add(LTValue);
+      LJObj.Free;;
+      LEle.Owned := True;
     end;
-    LIOBlock.Free;
   end;
+  LIOBlock.Free;
 end;
 
 function TJX4ListOfValues.JSONSerialize(AIOBlock: TJX4IOBlock): TValue;
@@ -202,11 +202,11 @@ begin
 
   if Count = 0 then
   begin
-    if Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
-      raise Exception.Create(Format('"%s" (TJX3ListValue) : a value is required', [LName]));
+    if Assigned(AIOBlock.Field) and Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
+      raise Exception.Create(Format('"%s" (TJX4ListValue) : a value is required', [LName]));
     if joNullToEmpty in AIOBlock.Options then Exit;
     if LName.IsEmpty then
-      Result := 'null'
+      Result :=  '[]'
     else
       Result := '"' + LName + '":null';
     Exit;
@@ -215,19 +215,23 @@ begin
   LParts := TList<string>.Create;
   LParts.Capacity := Self.Count;
   LIOBlock := TJX4IOBlock.Create;
-  for LEle in Self do
-  begin
-    LIOBlock.Init('', Nil, Nil, AIOBlock.Options);
-    LTValue := LEle.JSONSerialize(LIOBlock);
-    if not LTValue.IsEmpty then LParts.Add(LTValue.AsString);
+  try
+    for LEle in Self do
+    begin
+      if Assigned(AIOBlock.PAbort) and AIOBlock.PAbort^ then Exit;
+      LIOBlock.Init('', Nil, Nil, AIOBlock.Options, AIOBlock.PAbort);
+      LTValue := LEle.JSONSerialize(LIOBlock);
+      if not LTValue.IsEmpty then LParts.Add(LTValue.AsString);
+    end;
+    LRes := TJX4Object.JsonListToJsonString(LParts);
+    if LName.IsEmpty then
+      Result := '[' + LRes + ']'
+    else
+      Result := '"' + LName + '":[' + LRes + ']';
+  finally
+    LIOBlock.Free;
+    LParts.Free;
   end;
-  LIOBlock.Free;
-  LRes := TJX4Object.JsonListToJsonString(LParts);
-  if LName.IsEmpty then
-    Result := '[' + LRes + ']'
-  else
-    Result := '"' + LName + '":[' + LRes + ']';
-  LParts.Free;
 end;
 
 function TJX4ListOfValues.First: TValue;
@@ -257,9 +261,10 @@ begin
   Result.AddRange(AValues);
 end;
 
-function TJX4ListOfValues.SaveToJSONFile(const AFilename: string; AEncoding: TEncoding; AUseBOM: Boolean): Int64;
+function TJX4ListOfValues.SaveToJSONFile(const AFilename: string; AOptions: TJX4Options = [joNullToEmpty]; AEncoding: TEncoding = Nil; AZipIT: TCompressionLevel = clNone; AUseBOM: Boolean = False): Int64;
 begin
-  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self), AEncoding, AUseBOM);
+  if not Assigned(AEncoding) then AEncoding := TEncoding.UTF8;
+  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self, AOptions), AEncoding, AZipIT, AUseBOM);
 end;
 
 procedure TJX4ListOfValues.Merge(AMergedWith: TJX4ListOfValues; AOptions: TJX4Options);
@@ -358,19 +363,21 @@ begin
   if not Assigned(AIOBlock.JObj) then begin Clear; Exit; end;
   if AIOBlock.JObj.Count = 0 then begin Clear; Exit end;;
   if not Assigned(AIOBlock.JObj.Pairs[0].JsonValue) then begin Clear; Exit end;
-  if AIOBlock.JObj.Pairs[0].JsonValue.Null then begin Clear; Exit end;;
-  if TJSONArray(AIOBlock.JObj.Pairs[0].JsonValue) is TJSONArray then
-  begin
-    LIOBlock := TJX4IOBlock.Create;
+  if AIOBlock.JObj.Pairs[0].JsonValue.Null then begin Clear; Exit end;
+  if not (AIOBlock.JObj.Pairs[0].JsonValue is TJSONArray) then begin Clear; Exit end;
+
+  LIOBlock := TJX4IOBlock.Create;
+  try
     for LEle in TJSONArray(AIOBlock.JObj.Pairs[0].JsonValue) do
     begin
+      if Assigned(AIOBlock.PAbort) and AIOBlock.PAbort^ then Exit;
       if LELe is TJSONObject then
       begin
         LNewObj := T.Create;
         TxRTTI.CallMethodProc('JSONCreate', LNewObj, [True]);
         Add(LNewObj);
         LJObj :=  LEle as TJSONObject;
-        LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options);
+        LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options, AIOBlock.PAbort);
         TxRTTI.CallMethodProc( 'JSONDeserialize', LNewObj, [ LIOBlock ] );
       end else begin
         LNewObj := T.Create;
@@ -378,12 +385,13 @@ begin
         Add(LNewObj);
         LEle.Owned := False;
         LJObj :=  TJSONObject.Create(TJSONPair.Create('', LEle));
-        LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options);
+        LIOBlock.Init(AIOBlock.JsonName, LJObj, AIOBlock.Field, AIOBlock.Options, AIOBlock.PAbort);
         TxRTTI.CallMethodProc( 'JSONDeserialize', LNewObj, [ LIOBlock ] );
         LJObj.Free;;
         LEle.Owned := True;
       end;
     end;
+  finally
     LIOBlock.Free;
   end;
 end;
@@ -426,11 +434,11 @@ begin
 
   if Count = 0 then
   begin
-    if Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
-      raise Exception.Create(Format('"%s" (TJX3List) : a value is required', [LName]));
+    if Assigned(AIOBlock.Field) and  Assigned(TxRTTI.GetFieldAttribute(AIOBlock.Field, TJX4Required)) then
+      raise Exception.Create(Format('"%s" (TJX4List) : a value is required', [LName]));
     if joNullToEmpty in AIOBlock.Options then Exit;
     if LName.IsEmpty then
-      Result := 'null'
+      Result := '[]'
     else
       Result := '"' + LName + '":null';
     Exit;
@@ -441,7 +449,7 @@ begin
   LIOBlock := TJX4IOBlock.Create;
   for LEle in Self do
   begin
-    LIOBlock.Init('', Nil, Nil, AIOBlock.Options);
+    LIOBlock.Init('', Nil, Nil, AIOBlock.Options, AIOBlock.PAbort);
     LTValue := TxRTTI.CallMethodFunc('JSONSerialize', LEle, [ LIOBlock ]);
     if not LTValue.IsEmpty then LParts.Add(LTValue.AsString);
   end;
@@ -550,9 +558,10 @@ begin
   end;
 end;
 
-function TJX4List<T>.SaveToJSONFile(const AFilename: string; AEncoding: TEncoding; AUseBOM: Boolean): Int64;
+function TJX4List<T>.SaveToJSONFile(const AFilename: string; AOptions: TJX4Options; AEncoding: TEncoding; AZipIT: TCompressionLevel; AUseBOM: Boolean): Int64;
 begin
-  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self), AEncoding, AUseBOM);
+  if not Assigned(AEncoding) then AEncoding := TEncoding.UTF8;
+  Result := TJX4Object.SaveToFile(AFilename, TJX4Object.ToJSON(Self, AOptions), AEncoding, AZipIt, AUseBOM);
 end;
 
 
