@@ -21,7 +21,6 @@ type
   TConsoAPIResult = class(TJX4Object)
     status: TValue;
     message: TValue;
-    body: TValue;
     usage_point_id: TValue;
     start: TValue;
     &end: TValue;
@@ -82,6 +81,11 @@ var
   LBody: TStringStream;
 begin
   Result := Nil;
+
+   // Sanity Check
+  if StartDate > Now then StartDate := Now - 1;
+  if EndDate > Now then EndDate := Now - 1;
+
   LUrl := 'https://conso.boris.sh/api/' + TRttiEnumerationType.GetName(ConsoType)
           + '?prm='   + Prm
           + '&start=' + FormatDateTime('yyyy-mm-dd', StartDate)
@@ -93,7 +97,6 @@ begin
     if qConsoCom('GET',Token,  LUrl, Nil, LBody) = 200 then
     begin
       Result := TJX4Object.FromJSON<TConsoAPIResult>(LBody.DataString, [joRaiseException]);
-      Result.Body := TJX4Object.FormatJSON(LBody.DataString);
     end;
   finally
     LBody.Free;
