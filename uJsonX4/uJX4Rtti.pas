@@ -31,18 +31,9 @@ uses
   , System.TypInfo
   ;
 
-{$DEFINE JX4RTTICACHE} // Highly recommended : 200% SpeedUp !
-
-{$INCLUDE uJX4Ver.inc}
+{$DEFINE JX4RTTICACHE} // Highly recommended : 300% SpeedUp !
 
 type
-
-  {$IFDEF DELPHIUNDER12A}
-
-  TMemberVisibilities = set of TMemberVisibility;
-
-  {$ENDIF}
-
   TxRTTI = class abstract
     class function  GetPropsList(Instance: Pointer; ObjectClass: TClass): TDictionary<string, variant>;
     class function  GetField(AObj: TObject; AField: string): TRTTIFIeld; static;
@@ -62,7 +53,6 @@ type
     class function  FieldAsTValue(AObj: TObject; AField: TRttiField; var AValue: TValue; AVisibilities: TMemberVisibilities = [mvPublic]): Boolean;
     class function  FieldIsTObject(AField: TRttiField; AVisibilities: TMemberVisibilities = [mvPublic]): Boolean;
     class function  FieldAsTObject(ASelf: TObject; AField: TRttiField; var AObject: TObject; AVisibilities: TMemberVisibilities = [mvPublic]): Boolean;
-    class procedure ClearCaches;
   end;
 
   {$IFDEF JX4RTTICACHE}
@@ -82,11 +72,13 @@ var
   _RTTIMethObjCacheDic: TDictionary<NativeInt, TRTTIMethod>;
   _RTTIInstMethsCacheDic: TDictionary<TRttiInstanceType, TRTTIMethod>;
   _RTTIInstCacheDic: TDictionary<TRTTIField, TRttiInstanceType>;
-
 {$ELSE}
 var
   _RTTIctx: TRttiContext;
 {$ENDIF}
+var
+  xRTTIThreaded: Boolean;
+
 implementation
 uses
     StrUtils
@@ -179,14 +171,14 @@ class function TxRTTI.GetFields(aObj: TObject): TArray<TRTTIField>;
 var
   CType: TClass;
 begin
-  _RTTILock1.Enter;
+  if xRTTIThreaded then _RTTILock1.Enter;
   CType := aObj.ClassType;
   if not _RTTIFieldsCacheDic.TryGetValue(CType, Result) then
   begin
     Result :=  _RTTIctx.GetType(CType).GetFields;
     _RTTIFieldsCacheDic.Add(CType, Result);
   end;
-    _RTTILock1.Leave;
+    if xRTTIThreaded then _RTTILock1.Leave;
 end;
 {$ELSE}
 begin
@@ -197,13 +189,13 @@ end;
 class function TxRTTI.GetFields(AClass: TClass): TArray<TRTTIField>;
 {$IFDEF JX4RTTICACHE}
 begin
-  _RTTILock7.Enter;
+  if xRTTIThreaded then _RTTILock7.Enter;
   if not _RTTIFieldsClassCacheDic.TryGetValue(AClass, Result) then
   begin
     Result :=  _RTTIctx.GetType(AClass).GetFields;
     _RTTIFieldsClassCacheDic.Add(AClass, Result);
   end;
-    _RTTILock7.Leave;
+    if xRTTIThreaded then _RTTILock7.Leave;
 end;
 {$ELSE}
 begin
@@ -217,14 +209,14 @@ class function TxRTTI.GetProps(aObj: TObject): TArray<TRTTIProperty>;
 var
   CType: TClass;
 begin
-  _RTTILock2.Enter;
+  if xRTTIThreaded then _RTTILock2.Enter;
   CType := aObj.ClassType;
   if not _RTTIPropsCacheDic.TryGetValue(CType, Result) then
   begin
     Result :=  _RTTIctx.GetType(CType).GetProperties;
     _RTTIPropsCacheDic.Add(CType, Result);
   end;
-    _RTTILock2.Leave;
+    if xRTTIThreaded then _RTTILock2.Leave;
 end;
 {$ELSE}
 begin
@@ -237,14 +229,14 @@ class function TxRTTI.GetMethods(aObj: TObject): TArray<TRTTIMethod>;
 var
   CType: TClass;
 begin
-  _RTTILock3.Enter;
+  if xRTTIThreaded then _RTTILock3.Enter;
   CType := aObj.ClassType;
   if not _RTTIMethsCacheDic.TryGetValue(CType, Result) then
   begin
     Result :=  _RTTIctx.GetType(CType).GetMethods;
     _RTTIMethsCacheDic.Add(CType, Result);
   end;
-    _RTTILock3.Leave;
+    if xRTTIThreaded then _RTTILock3.Leave;
 end;
 {$ELSE}
 begin
@@ -257,14 +249,14 @@ class function TxRTTI.GetMethod(AObj: TObject; const AName: string): TRTTIMethod
 var
   Lx: NativeInt;
 begin
-  _RTTILock4.Enter;
+  if xRTTIThreaded then _RTTILock4.Enter;
   Lx := NativeInt(AObj.ClassType) + AName.GetHashCode;
   if  not _RTTIMethObjCacheDic.TryGetValue(Lx, Result)  then
   begin
     Result :=  _RTTIctx.GetType(AObj.ClassType).GetMethod(AName);
     _RTTIMethObjCacheDic.Add(Lx, Result);
   end;
-  _RTTILock4.Leave;
+  if xRTTIThreaded then _RTTILock4.Leave;
 end;
 {$ELSE}
 begin
@@ -276,13 +268,13 @@ end;
 class function TxRTTI.GetMethod(AInstance: TRttiInstanceType; const AName: string): TRTTIMethod;
 {$IFDEF JX4RTTICACHE}
 begin
-  _RTTILock5.Enter;
+  if xRTTIThreaded then _RTTILock5.Enter;
   if not _RTTIInstMethsCacheDic.TryGetValue(AInstance, Result) then
   begin
     Result := AInstance.GetMethod(AName);
     _RTTIInstMethsCacheDic.Add(AInstance, Result);
   end;
-  _RTTILock5.Leave;
+  if xRTTIThreaded then _RTTILock5.Leave;
 end;
 {$ELSE}
 begin
@@ -314,13 +306,13 @@ end;
 class function TxRTTI.GetFieldInstance(Field: TRTTIField) : TRttiInstanceType;
 {$IFDEF JX4RTTICACHE}
 begin
-  _RTTILock6.Enter;
+  if xRTTIThreaded then _RTTILock6.Enter;
   if not _RTTIInstCacheDic.TryGetValue(Field, Result) then
   begin
     Result := Field.FieldType.AsInstance;
     _RTTIInstCacheDic.Add(Field, Result);
   end;
-  _RTTILock6.Leave;
+  if xRTTIThreaded then _RTTILock6.Leave;
 end;
 {$ELSE}
 begin
@@ -328,33 +320,9 @@ begin
 end;
 {$ENDIF}
 
-class procedure TxRTTI.ClearCaches;
-begin
-  _RTTILock1.Acquire;
-  _RTTILock2.Acquire;
-  _RTTILock3.Acquire;
-  _RTTILock4.Acquire;
-  _RTTILock5.Acquire;
-  _RTTILock6.Acquire;
-  _RTTILock7.Acquire;
-  _RTTIFieldsCacheDic.Clear;
-  _RTTIPropsCacheDic.Clear;
-  _RTTIMethsCacheDic.Clear;
-  _RTTIMethObjCacheDic.Clear;
-  _RTTIInstMethsCacheDic.Clear;
-  _RTTIInstCacheDic.Clear;
-  _RTTIFieldsClassCacheDic.Clear;
-  _RTTILock7.Release;
-  _RTTILock6.Release;
-  _RTTILock5.Release;
-  _RTTILock4.Release;
-  _RTTILock3.Release;
-  _RTTILock2.Release;
-  _RTTILock1.Release;
-end;
-
 initialization
 {$IFDEF JX4RTTICACHE}
+
   _RTTIFieldsCacheDic := TDictionary<TClass, TArray<TRttiField>>.Create;
   _RTTIFieldsClassCacheDic := TDictionary<TClass, TArray<TRttiField>>.Create;
   _RTTIPropsCacheDic := TDictionary<TClass, TArray<TRttiProperty>>.Create;
@@ -370,6 +338,7 @@ initialization
   _RTTILock6 := TCriticalSection.Create;
   _RTTILock7 := TCriticalSection.Create;
 {$ENDIF}
+  xRTTIThreaded:= True;
 finalization
 {$IFDEF JX4RTTICACHE}
   _RTTILock7.Free;

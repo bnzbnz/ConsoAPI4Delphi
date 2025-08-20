@@ -536,8 +536,12 @@ begin
   if AMergedWith.Count = 0  then Exit;
   if (jmoStats in AOptions) then
   begin
-    if Not Assigned(FAdded) then FAdded := TList<TValue>.Create else FAdded.Clear;
-    if Not Assigned(FDeleted) then FDeleted := TList<TValue>.Create else FDeleted.Clear;
+    if not Assigned(FAdded) then
+      FAdded :=  TList<TValue>.Create
+    else FAdded.Clear;
+    if not Assigned(FDeleted) then
+      FDeleted :=  TList<TValue>.Create
+    else FDeleted.Clear;
   end;
   for var i := AMergedWith.Count  - 1 downto 0 do
   begin
