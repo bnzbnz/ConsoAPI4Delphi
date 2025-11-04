@@ -96,7 +96,7 @@ begin
   try
     if qConsoCom('GET',Token,  LUrl, Nil, LBody) = 200 then
     begin
-      Result := TJX4Object.FromJSON<TConsoAPIResult>(LBody.DataString, [joRaiseException]);
+      Result := TJX4Object.FromJSON<TConsoAPIResult>(LBody.DataString, [joRaiseOnException]);
     end;
   finally
     LBody.Free;
